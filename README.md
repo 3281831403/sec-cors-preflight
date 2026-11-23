@@ -2,7 +2,7 @@
 
 ## 题面
 
-接口只给自家前端开的跨域权限，第三方站点却能直接读到返回数据：默认端口没有归一，`https://app.example.com:443` 与白名单里的 `https://app.example.com` 被当成两个来源或反向放行；来源校验用后缀匹配，`https://evil-a.com` 能命中 `https://a.com`；`null` 来源被当成合法来源；凭证请求下 `*` 仍然放行任意方法，而浏览器对携带凭证的 `*` 本就不认；请求头用前缀匹配，`x-custom-evil` 能命中 `x-custom`；预检把未校验的 `Access-Control-Request-Headers` 原样反射；实际响应缺少 `Vary: Origin`，共享缓存会把别人的放行头串给第三方；返回 `Allow-Origin: *` 时还带着 `Allow-Credentials: true`，浏览器拒绝而配置层却留下凭证泄漏面；策略校验不识别“反射请求 origin”这种配置；批量判定复用上一请求的响应头，第二个来源拿到第一个来源的 `Allow-Origin`。cors/preflight.py 是核心，tests/test_preflight.py 15个红。要修的是：按 scheme/host/port 归一来源并做精确匹配与受控子域匹配，拒绝 `null` 与后缀混淆，凭证场景禁用 `*` 并逐项校验方法与请求头，预检不得反射未授权头且拒绝时返回 403 语义，实际响应始终带 `Vary: Origin` 且绝不把 `*` 与凭证混用，策略校验拦截 `*`+凭证、反射 origin 与 `*` 方法+凭证，批量每个请求独立计算。
+接口只给自家前端开的跨域权限，第三方站点却能直接读到返回数据：默认端口没有归一，带 443 和不带 443 的同一个域被判成两个；origin 匹配用 endswith，evil-a.com 命中 a.com；null origin 也被放行；方法白名单是星号时把带凭证的请求也当允许；请求头白名单用前缀比较，x-custom-evil 命中 x-custom；预检把请求里的 Access-Control-Request-Headers 原样反射回响应；实际请求响应缺少 Vary Origin，缓存会把放行头带给别人；允许任意 origin 的同时又回凭证为真，配置自相矛盾；策略校验不检查反射 origin 这种写法；批量判定复用响应头，后一个请求沿用前一个请求的放行结果。cors/preflight.py 是核心，tests/test_preflight.py 15个红。要修的是：按上面的顺序把 10 个缺陷逐个修掉。
 
 ## 运行方式
 
